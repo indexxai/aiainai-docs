@@ -1,6 +1,6 @@
 # BTCY Sell Eligible Users Snapshot
 
-Generated at: `2026-05-12T12:52:42.408Z`
+Generated at: `2026-05-14T13:18:21.122Z`
 
 Database: `prod-indexx-exchange`
 
@@ -33,17 +33,18 @@ Users who only received BTCY through mining, airdrop, Alchemy, manual wallet cre
 | Email | Purchased BTCY | Used BTCY | Can Sell BTCY | Reason |
 | --- | ---: | ---: | ---: | --- |
 | jerryhngo@gmail.com | 13314.81506260431 | 0 | 13314.81506260431 | Completed BTCY buy paid by PayPal; completed PayPal payment linked to BTCY buy order |
-| meliawaty65@gmail.com | 1261 | 0 | 1261 | Completed BTCY buy paid by USDT |
+| meliawaty65@gmail.com | 1416.26885338 | 0 | 1416.26885338 | Completed BTCY buy paid by USDT |
+| ms9820639@gmail.com | 1112.29969459 | 0 | 1112.29969459 | Completed BTCY buy paid by USDT |
 | singjayabandung@gmail.com | 1008.8 | 0 | 1008.8 | Completed BTCY buy paid by USDT |
 | sergejkirsch79@gmail.com | 999.8027761854773 | 0 | 999.8027761854773 | Completed BTCY buy paid by PayPal; completed PayPal payment linked to BTCY buy order |
-| ms9820639@gmail.com | 956.7527819 | 0 | 956.7527819 | Completed BTCY buy paid by USDT |
 | sangmey14@gmail.com | 913.01516778 | 0 | 913.01516778 | Completed BTCY buy paid by USDT |
 | mahuclo74@gmail.com | 570.1036951550464 | 0 | 570.1036951550464 | Completed BTCY buy paid by USDT |
 | mr.zakimed@gmail.com | 478.4486031 | 0 | 478.4486031 | Completed BTCY buy paid by USDT |
 | abbasafvasibi@gmail.com | 473.568934 | 0 | 473.568934 | Completed BTCY buy paid by USDT |
+| billyoktria31@gmail.com | 468.37671171 | 0 | 468.37671171 | Completed BTCY buy paid by USDT |
 | traylil503@gmail.com | 405.250465 | 0 | 405.250465 | Completed BTCY buy paid by USDT |
 | alexanderchirino@gmail.com | 314.3184962081141 | 0 | 314.3184962081141 | Completed BTCY buy paid by PayPal; completed PayPal payment linked to BTCY buy order |
-| ammanullah60@gmail.com | 300.49 | 10 | 290.49 | Completed BTCY buy paid by USDT |
+| ammanullah60@gmail.com | 300.49 | 30 | 270.49 | Completed BTCY buy paid by USDT |
 | lili@azooca.com | 255.01 | 0 | 255.01 | Completed BTCY buy paid by USDC and USDT |
 | brsaraivar@gmail.com | 215.8331807416175 | 0 | 215.8331807416175 | Completed BTCY buy paid by PayPal; completed PayPal payment linked to BTCY buy order |
 | hatchtage@yahoo.com | 794.5510404414563 | 601.99 | 192.56104044145627 | Completed BTCY buy paid by PayPal and USDC; completed PayPal payment linked to BTCY buy order |
@@ -53,7 +54,6 @@ Users who only received BTCY through mining, airdrop, Alchemy, manual wallet cre
 | sugihbanda117@gmail.com | 166.9 | 0 | 166.9 | Completed BTCY buy paid by USDT |
 | nugraha.indra0221@gmail.com | 165.350224 | 0 | 165.350224 | Completed BTCY buy paid by USDT |
 | songthanh9999@gmail.com | 162.7481908 | 0 | 162.7481908 | Completed BTCY buy paid by USDT |
-| billyoktria31@gmail.com | 156.54561797 | 0 | 156.54561797 | Completed BTCY buy paid by USDT |
 | muhammadmarjuki1203@gmail.com | 147.614549 | 0 | 147.614549 | Completed BTCY buy paid by USDT |
 | medygalagala388@gmail.com | 132.56859518915638 | 0 | 132.56859518915638 | Completed BTCY buy paid by PayPal; completed PayPal payment linked to BTCY buy order |
 | cholidaja45@gmail.com | 123.50222464360301 | 0 | 123.50222464360301 | Completed BTCY buy paid by USDT |
@@ -85,8 +85,10 @@ Only users with non-zero `Used BTCY` are listed here.
 
 | Email | Used BTCY | Where It Was Used | Order ID | Status | Date |
 | --- | ---: | --- | --- | --- | --- |
+| alexanderkruus@gmail.com | 127 | Completed BTCY convert from BTCY to USDT | 30519820 | Completed | 2026-03-30T03:34:42.081Z |
 | ammanullah60@gmail.com | 10 | BTCY sell order reserved against allowance, because it is not cancelled or expired | CRYPTO_SELL1778252493557 | Pending | 2026-05-08T15:01:33.557Z |
-| hatchtage@yahoo.com | 601.99 | Completed BTCY convert from BTCY to USDT | 72181825 | Completed | 2026-02-10T05:21:24.326Z |
-| sunkuomkarsai12121@gmail.com | 90 | Completed BTCY convert from BTCY to IUSD+ | 79305373 | Completed | 2025-04-18T15:33:17.766Z |
-| alexanderkruus@gmail.com | 127 | Completed BTCY convert from BTCY to USDT | 30519820 | Completed | 2026-03-30T03:34:44.366Z |
-| iyastopik63@gmail.com | 166 | Completed BTCY convert from BTCY to USDT | 26533346 | Completed | 2026-04-26T09:06:39.286Z |
+| ammanullah60@gmail.com | 10 | BTCY sell order reserved against allowance, because it is not cancelled or expired | CRYPTO_SELL1778606823149 | Pending | 2026-05-12T17:27:03.149Z |
+| ammanullah60@gmail.com | 10 | BTCY sell order reserved against allowance, because it is not cancelled or expired | CRYPTO_SELL1778691677762 | Pending | 2026-05-13T17:01:17.763Z |
+| hatchtage@yahoo.com | 601.99 | Completed BTCY convert from BTCY to USDT | 72181825 | Completed | 2026-02-10T05:21:22.039Z |
+| iyastopik63@gmail.com | 166 | Completed BTCY convert from BTCY to USDT | 26533346 | Completed | 2026-04-26T09:06:37.768Z |
+| sunkuomkarsai12121@gmail.com | 90 | Completed BTCY convert from BTCY to IUSD+ | 79305373 | Completed | 2025-04-18T15:33:16.803Z |

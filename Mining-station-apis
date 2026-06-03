@@ -1,0 +1,648 @@
+# Mining Station API
+
+This document explains how the Mining Station APIs work and how each response is generated.
+
+Primary route:
+
+`/api/v1/mining/station`
+
+Related read-only earnings route:
+
+`/api/v1/earnings`
+
+Primary implementation files:
+
+- `routes/miningstation.routes.ts`
+- `controllers/miningStationAPI.ts`
+- `services/miningStationEarnings.service.ts`
+- `services/miningWithdrawRequest.service.ts`
+- `models/userMiningBalance.ts`
+- `models/miningWithdrawRequest.ts`
+
+## Auth And Access
+
+Every route requires:
+
+```http
+Authorization: Bearer <JWT_TOKEN>
+```
+
+Access rules:
+
+- Normal users can read only their own station data.
+- `Admin` and `SuperAdmin` can pass `?email=<user email>` on GET routes to inspect another user's station.
+- `POST /withdrawals` always uses the authenticated user's JWT email. It does not allow withdrawing for another user through query/body email.
+
+Common auth errors:
+
+```json
+{ "message": "Unauthorized: Missing or invalid Authorization header" }
+```
+
+```json
+{ "message": "Unauthorized: Invalid or expired token" }
+```
+
+Forbidden response:
+
+```json
+{
+  "status": 403,
+  "data": { "message": "Forbidden" }
+}
+```
+
+## Common Query Params
+
+Most GET endpoints support:
+
+| Query | Default | Notes |
+| --- | --- | --- |
+| `email` | logged-in user | Admin/SuperAdmin only for other users. |
+| `range` | `30d` | Examples: `7d`, `30d`, `90d`, `all`. |
+| `from` | none | ISO date. If `from` or `to` exists, range becomes `custom`. |
+| `to` | now | ISO date. |
+| `timezone` | `Asia/Kolkata` | Used for calendar buckets and current month ranges. |
+| `page` | `0` | Zero-based page index. |
+| `pageSize` | `20` | Max `100` for station lists. |
+
+## Cache Behavior
+
+Station responses are cached in Redis for 5 minutes.
+
+The service also coalesces identical in-flight requests. If two identical uncached requests arrive at the same time, only one DB computation runs and both callers receive the same result.
+
+Cache keys include:
+
+- endpoint scope
+- normalized email
+- range/from/to/timezone
+- page/pageSize
+
+Withdrawal submission invalidates the owner's station caches.
+
+## Main Data Sources
+
+### User Collection
+
+Used for:
+
+- station owner profile
+- owner referral code
+- referred users
+- saved BTCY payout wallets
+- KYC fields used by `qualificationStatus`
+
+Important fields:
+
+- `email`
+- `referralCode`
+- `referralCodeUsed`
+- `firstName`
+- `lastName`
+- `username`
+- `profilePic`
+- `lastActive`
+- `kycStatus`
+- `isKYCPass`
+- `userWallets`
+
+### AdMiningWatch Collection
+
+Used for all ad-count and ad-revenue metrics.
+
+Important fields:
+
+- `email`
+- `timestamp`
+- `adType`
+
+Current behavior:
+
+- Ad counts include all `adType` values.
+- Missing or custom `adType` values still count as ad impressions.
+- Revenue is still calculated only from exact `rewarded` and `interstitial` counts because only those have configured CPM rates.
+
+### Mining Collection
+
+Used for:
+
+- owner mining status
+- miner `isMining`
+- miner `lastClaimTime`
+- withdrawal minimum gate via `totalMined`
+
+Important fields:
+
+- `email`
+- `coinSymbol`
+- `isMiningActive`
+- `lastClaimTime`
+- `totalMined`
+
+### userMiningBalance Collection
+
+Used for withdrawable balance display and withdrawal validation.
+
+Important fields:
+
+- `email`
+- `coinSymbol`
+- `transferableBalance`
+- `unverifiedBalance`
+- `migratedBalance`
+
+### WithdrawRequest Collection
+
+Used by the withdrawals page/history.
+
+Important fields:
+
+- `orderId`
+- `email`
+- `requestedAmount`
+- `approvedAmount`
+- `status`
+- `withdrawalMethod`
+- `txHash`
+- `createdAt`
+- `processedAt`
+
+## Revenue Model
+
+Rates are read from environment variables, with fallback defaults:
+
+| Env | Default | Meaning |
+| --- | ---: | --- |
+| `AD_REVENUE_MODEL` | `admob_cpm_share` | Current model label. |
+| `ADMOB_CPM_USD` | `0` | Rewarded CPM. |
+| `ADMOB_INTERSTITIAL_CPM_USD` | `0` | Interstitial CPM. |
+| `AD_REVENUE_SHARE_PCT` | `30` | User/station revenue share percent. |
+| `USD_PER_BTCY` | `0` | USD to BTCY conversion rate. |
+
+Formula:
+
+```text
+gross rewarded USD       = rewardedCount * (ADMOB_CPM_USD / 1000)
+gross interstitial USD  = interstitialCount * (ADMOB_INTERSTITIAL_CPM_USD / 1000)
+earnings USD            = gross USD * (AD_REVENUE_SHARE_PCT / 100)
+earnings BTCY           = earnings USD / USD_PER_BTCY
+```
+
+If `USD_PER_BTCY` is `0`, BTCY earnings are returned as `0` or `null` depending on the field.
+
+## Withdrawal Balance Calculation
+
+The visible withdrawal balance comes from `userMiningBalance.transferableBalance`.
+
+It is not recalculated from ad watches on each request.
+
+Display fields:
+
+- `availableWithdrawalBalance.btcy = userMiningBalance.transferableBalance`
+- `availableWithdrawalBalance.usd = transferableBalance * USD_PER_BTCY`
+- `pendingUnverifiedEarnings.btcy = userMiningBalance.unverifiedBalance`
+- `pendingUnverifiedEarnings.usd = unverifiedBalance * USD_PER_BTCY`
+
+Withdrawal request validation:
+
+1. Find Mining record:
+
+```ts
+{ email, coinSymbol: "BTCY" }
+```
+
+2. Find user mining balance:
+
+```ts
+{ email, coinSymbol: "BTCY" }
+```
+
+3. Require:
+
+```text
+mining.totalMined >= 1,000,000 BTCY
+```
+
+4. Require:
+
+```text
+userMiningBalance.transferableBalance >= requestedAmount
+```
+
+5. Method limit:
+
+```text
+Immediate max = min(mining.totalMined, transferableBalance)
+Vested max    = min(100,000, transferableBalance)
+```
+
+The current vested limit always uses month 1 of this schedule:
+
+```ts
+[100000, 150000, 200000, 200000, 200000, 150000]
+```
+
+6. Fee:
+
+```text
+Immediate fee = 10%
+Vested fee    = 3%
+approvedAmount = requestedAmount - fee
+```
+
+7. On successful request creation:
+
+```text
+Mining.totalMined -= requestedAmount
+userMiningBalance.transferableBalance -= requestedAmount
+WithdrawRequest.status = "Pending"
+```
+
+8. When a pending withdrawal is processed:
+
+```text
+userWallets.BTCY.coinBalance += approvedAmount
+userMiningBalance.migratedBalance += requestedAmount
+WithdrawRequest.status = "Approved"
+```
+
+Important consequence:
+
+If `availableWithdrawalBalance` looks low, check `userMiningBalance.transferableBalance`. Ad watch totals alone do not make funds withdrawable until another process has moved/verified them into `transferableBalance`.
+
+## GET /api/v1/mining/station/overview
+
+High-level station dashboard.
+
+Query params:
+
+- `email` admin only
+- `range`
+- `from`
+- `to`
+- `timezone`
+
+Generated from:
+
+- `getOverview(ownerEmail)` for base referral/ad/earnings summary
+- owner/referral context
+- owner Mining record
+- owner userMiningBalance record
+- current-month daily active miners
+- six-month referral growth
+
+Key fields:
+
+| Field | Source / Calculation |
+| --- | --- |
+| `owner` | User profile fields. |
+| `qualificationStatus` | `qualified` if `isKYCPass` or `kycStatus` is approved/verified, otherwise `pending_verification`. |
+| `miningStatus` | Owner Mining `isMiningActive`. |
+| `totalMiners` | Number of users whose `referralCodeUsed` equals owner's `referralCode`. |
+| `activeMiners` | Referrals with ad count greater than zero in selected range. |
+| `monthlyVerifiedAdRevenue` | Current-month gross ad revenue. |
+| `currentMonthEarnings` | Current-month revenue share. |
+| `lifetimeEarned` | Lifetime referral ad revenue share. |
+| `pendingUnverifiedEarnings` | `userMiningBalance.unverifiedBalance`. |
+| `availableWithdrawalBalance` | `userMiningBalance.transferableBalance`. |
+| `dailyActiveMiners` | Current-month daily unique ad-watch emails. |
+| `monthlyGrowthRate` | New referrals grouped by month from owner referral code. |
+| `totalAdImpressionsThisMonth` | Current-month ad count from referred users. |
+| `topReferrals` | Top 10 referrals by selected range ad count. |
+
+Example:
+
+```bash
+curl -H "Authorization: Bearer <JWT_TOKEN>" \
+  "https://api.v1.indexx.ai/api/v1/mining/station/overview?range=30d"
+```
+
+## GET /api/v1/mining/station/earnings
+
+Detailed earnings page data.
+
+Query params:
+
+- `email` admin only
+- `range`
+- `from`
+- `to`
+- `timezone`
+
+Generated from:
+
+- base `getOverview(ownerEmail)`
+- userMiningBalance
+- previous-month ad totals
+- 12-month earnings history
+
+Key fields:
+
+| Field | Source / Calculation |
+| --- | --- |
+| `lifetimeEarned` | Lifetime earnings from referred ad watches. |
+| `currentMonthEarnings` | Current-month earnings. |
+| `pendingUnverified` | `userMiningBalance.unverifiedBalance`. |
+| `availableWithdrawalBalance` | `userMiningBalance.transferableBalance`. |
+| `allocationRate` | Revenue share percent. |
+| `nextPayoutAt` | First day of next month. |
+| `earningsHistory` | Last 12 months grouped by month. |
+| `revenueSources` | Current implementation returns ad impressions plus zero placeholder rows for referral/performance bonus. |
+| `growthVsLastMonth` | Current-month earnings compared to previous-month earnings. |
+
+## GET /api/v1/mining/station/referrals
+
+Paginated referral list.
+
+Query params:
+
+- `email` admin only
+- `range`
+- `from`
+- `to`
+- `timezone`
+- `page`
+- `pageSize`
+
+Generated from:
+
+- owner referral code
+- referred user profiles
+- ad counts for selected range
+- ad counts for current month
+- Mining records for referred users
+
+Key fields:
+
+| Field | Source / Calculation |
+| --- | --- |
+| `totals.totalReferrals` | Number of referred users. |
+| `totals.activeReferrals` | Referrals with mining active or current-month ad count > 0. |
+| `totals.newReferralsThisMonth` | Referred users whose ObjectId timestamp falls in current month. |
+| `totals.earnedThisMonth` | Sum of current-month earnings from all referrals. |
+| `referrals[].adsWatchedCurrentRange` | Ad count in requested range. |
+| `referrals[].earnedCurrentRange` | Earnings in requested range. |
+| `referrals[].earnedThisMonth` | Earnings in current month. |
+| `referrals[].lastActiveAt` | Latest of user lastActive, ad watch, or mining last claim. |
+| `referrals[].status` | `active` if mining active or current-month ad count > 0. |
+
+## GET /api/v1/mining/station/miners
+
+Paginated miner list.
+
+Query params:
+
+- `email` admin only
+- `page`
+- `pageSize`
+
+Current behavior:
+
+- Ad counts include all ad types.
+- Miner table ad count is all-time/lifetime ad count, not current month.
+- `adsWatchedMonthly` is currently kept as an alias of `adsWatchedTotal` for frontend compatibility.
+
+Generated from:
+
+- owner referral code
+- referred user profiles
+- all-time ad counts grouped by referral email
+- last-7-days ad counts grouped by referral email
+- Mining records only for the returned page
+- Mining streak records only for the returned page
+- referral counts only for the returned page
+
+Key fields:
+
+| Field | Source / Calculation |
+| --- | --- |
+| `totals.totalMiners` | Number of referred users. |
+| `totals.activeLast7Days` | Referred users with at least one ad watch in the last 7 days. |
+| `totals.activeStreaksCount` | MiningStreak records with `currentStreak > 0`. |
+| `totals.totalAdsWatched` | Sum of all-time ad watches for all referred users. |
+| `totals.avgAdsWatched` | `totalAdsWatched / totalMiners`. |
+| `totals.avgMonthlyAds` | Backward-compatible alias of `avgAdsWatched`. |
+| `miners[].adsWatchedTotal` | All-time ad watches for that miner. |
+| `miners[].adsWatchedMonthly` | Alias of `adsWatchedTotal`. |
+| `miners[].miningStreakDays` | Effective streak from MiningStreak. |
+| `miners[].isMining` | Mining record `isMiningActive`. |
+| `miners[].referralsCount` | Number of users who used that miner's referral code. |
+| `miners[].lastActiveAt` | Latest of user lastActive, latest ad watch, and mining last claim. |
+
+Sorting:
+
+1. Descending `adsWatchedTotal`
+2. Ascending email
+
+Example:
+
+```bash
+curl -H "Authorization: Bearer <JWT_TOKEN>" \
+  "https://api.v1.indexx.ai/api/v1/mining/station/miners?page=0&pageSize=20"
+```
+
+## GET /api/v1/mining/station/analytics
+
+Analytics charts and engagement metrics.
+
+Query params:
+
+- `email` admin only
+- `timezone`
+
+Generated from current-month and previous-month ad aggregates.
+
+Key fields:
+
+| Field | Source / Calculation |
+| --- | --- |
+| `revenueGrowthPercent` | Current-month earnings vs previous-month earnings. |
+| `revenueGrowthDelta` | Current-month earnings USD minus previous-month earnings USD. |
+| `avgDailyActive` | Average daily unique active referred users in current month. |
+| `avgAdImpressionsPerDay` | Current-month ads divided by elapsed current-month days. |
+| `engagementRate` | Active current-month referrals / total referrals * 100. |
+| `revenueTrend` | Last 12 months grouped by month. |
+| `minerActivityByHour` | Current-month ads grouped by hour and unique active miners. |
+| `engagementDistribution` | Current-month referrals bucketed by ad count: 0, 1-10, 11-25, 26+. |
+| `weeklyReferralPerformance` | Last 8 weeks of ad count, active miners, and earnings. |
+
+## GET /api/v1/mining/station/withdrawals
+
+Withdrawal page data.
+
+Query params:
+
+- `email` admin only
+- `page`
+- `pageSize`
+
+Generated from:
+
+- owner User BTCY wallets
+- `userMiningBalance`
+- `WithdrawRequest` history
+- pending withdrawal aggregation
+
+Key fields:
+
+| Field | Source / Calculation |
+| --- | --- |
+| `availableWithdrawalBalance` | `userMiningBalance.transferableBalance`. |
+| `minimumWithdrawal` | Fixed `1,000,000 BTCY`. |
+| `supportedMethods` | Immediate 10% fee, Vested 3% fee. |
+| `savedPayoutDestinations` | User wallets where `coinSymbol` is BTCY. |
+| `pendingWithdrawalSummary.count` | Count of pending requests. |
+| `pendingWithdrawalSummary.requestedAmount` | Sum of pending requested amounts. |
+| `pendingWithdrawalSummary.approvedAmount` | Sum of pending approved/net amounts. |
+| `withdrawalHistory` | Paginated `WithdrawRequest` rows sorted by `createdAt` descending. |
+
+Example:
+
+```bash
+curl -H "Authorization: Bearer <JWT_TOKEN>" \
+  "https://api.v1.indexx.ai/api/v1/mining/station/withdrawals?page=0&pageSize=20"
+```
+
+## POST /api/v1/mining/station/withdrawals
+
+Creates a pending withdrawal request.
+
+Body:
+
+```json
+{
+  "amount": 1000000,
+  "method": "Immediate"
+}
+```
+
+Allowed methods:
+
+- `Immediate`
+- `Vested`
+
+Validation:
+
+- User must be authenticated.
+- `amount` must be greater than `0`.
+- `method` must be `Immediate` or `Vested`.
+- Mining record must exist for BTCY.
+- `mining.totalMined` must be at least `1,000,000`.
+- `userMiningBalance.transferableBalance` must cover the requested amount.
+- Requested amount must not exceed method max.
+
+Successful response:
+
+```json
+{
+  "status": 200,
+  "data": {
+    "message": "Withdrawal request submitted successfully",
+    "withdrawal": {
+      "orderId": "1780000000000",
+      "email": "user@example.com",
+      "requestedAmount": 1000000,
+      "approvedAmount": 900000,
+      "status": "Pending",
+      "withdrawalMethod": "Immediate",
+      "txHash": "",
+      "createdAt": "2026-06-03T00:00:00.000Z"
+    }
+  }
+}
+```
+
+Common failure messages:
+
+```json
+{ "status": 400, "data": { "message": "amount must be greater than 0" } }
+```
+
+```json
+{ "status": 400, "data": { "message": "method must be Immediate or Vested" } }
+```
+
+```json
+{ "status": 400, "data": { "message": "You must have at least 1,000,000 BTCY to withdraw." } }
+```
+
+```json
+{ "status": 400, "data": { "message": "Insufficient available withdrawal balance." } }
+```
+
+## Related Earnings Routes
+
+These routes use the same `MiningStationEarningsService` but are mounted at `/api/v1/earnings`.
+
+### GET /api/v1/earnings/overview
+
+Returns the base earnings overview used internally by station overview/earnings.
+
+Data generated from:
+
+- owner profile
+- owner referral code
+- referred users
+- ad aggregates for lifetime, current range, current month, and history
+
+### GET /api/v1/earnings/user
+
+Returns earnings for one user's own ad watches, not station referral earnings.
+
+Data generated from:
+
+- lifetime ad watches for that email
+- selected range ad watches for that email
+- current-month ad watches for that email
+
+### GET /api/v1/earnings/users
+
+Admin-style paginated list of all users with ad-watch earnings in a range.
+
+Data generated from:
+
+- `AdMiningWatch` grouped by email
+- selected range only
+- sorted by ad count descending
+
+## Troubleshooting
+
+### Ads Watched Looks Higher Than Before
+
+This is expected after the latest change. Counts now include every recorded ad type instead of only `rewarded` and `interstitial`.
+
+Revenue still only uses `rewarded` and `interstitial` CPM calculations.
+
+### Miners API Ads Are Not Current Month
+
+`GET /miners` now returns all-time/lifetime ad counts:
+
+- `adsWatchedTotal`
+- `adsWatchedMonthly` as a compatibility alias
+
+Current-month ad metrics still exist in overview, earnings, referrals, and analytics where fields explicitly say current month.
+
+### Withdrawal Balance Is Zero But Ads Exist
+
+The withdrawal balance uses:
+
+```text
+userMiningBalance.transferableBalance
+```
+
+It does not directly equal ad counts or calculated lifetime earnings. Check the process that moves verified earnings into `transferableBalance`.
+
+### Last Active Exists But Ads Watched Is Zero
+
+`lastActiveAt` may come from:
+
+- User `lastActive`
+- latest ad watch
+- Mining `lastClaimTime`
+
+A user can be active in the app or mining without having counted ad-watch records.
+
+### Response Still Shows Old Data
+
+Responses can be cached for up to 5 minutes in Redis. Withdrawal submission invalidates station caches for that owner.
